@@ -1,4 +1,5 @@
-import { Table, Column, Model, DataType } from 'sequelize-typescript';
+import { Table, Column, Model, DataType, HasMany } from 'sequelize-typescript';
+import { CourtsSite } from 'src/courts_sites/entities/courts_site.entity';
 
 export enum CourtTypes {
   GENERAL = 'GENERAL',
@@ -18,4 +19,9 @@ export class Region extends Model {
     type: DataType.ENUM(...Object.values(CourtTypes))
   })
   court_type: CourtTypes;
+
+  @HasMany(() => CourtsSite)
+  courses: CourtsSite[] | null;
+// Region.hasMany(CourtsSite);
 }
+

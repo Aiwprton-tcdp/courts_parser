@@ -20,7 +20,6 @@ export class RegionsController {
   @Get('parse')
   async parse() {
     return await this.regionsService.parseRegions();
-    // return await this.seleniumService.tryToParseRegions();
   }
 
   @Get(':id')

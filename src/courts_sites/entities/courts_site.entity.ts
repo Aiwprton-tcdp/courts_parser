@@ -12,4 +12,8 @@ export class CourtsSite extends Model {
   @ForeignKey(() => Region)
   @Column(DataType.INTEGER)
   region_id: number;
+  
+  @BelongsTo(() => Region)
+  // @Column
+  region: Region;
 }

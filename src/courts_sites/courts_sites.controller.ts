@@ -25,12 +25,33 @@ export class CourtsSitesController {
     // return this.courtsSitesService.findOne(+id);
   }
 
-  @Get('general/court_subj/:id')
-  async parseOne(@Param('id') id?: number) {
-    const court_subj = id ?? 66;
-    const url = `https://sudrf.ru/index.php?id=300&act=go_search&searchtype=fs&court_name=&court_subj=${court_subj}&court_type=RS&court_okrug=0`;
-    return await this.seleniumService.tryToParseCourtSubjectsByRegion(url);
+  @Get('parse/all')
+  async parseAll() {
+    const g = await this.courtsSitesService.parseAllGeneral();
+    const m = await this.courtsSitesService.parseAllMagistrate();
+    return String.prototype.concat(g, m);
   }
+
+  @Get('parse/general')
+  async parseAllGeneral() {
+    return await this.courtsSitesService.parseAllGeneral();
+  }
+
+  @Get('parse/magistrate')
+  async parseAllMagistrate() {
+    return await this.courtsSitesService.parseAllMagistrate();
+  }
+
+  @Get('parse/court_cases')
+  async parseCourtCasesBySubjects() {
+    return await this.courtsSitesService.parseCourtCasesBySubjects();
+  }
+
+  // @Get('general/:key')
+  // async parseByRegionKey(@Param('key') key?: number) {
+  //   const region_key = key ?? 66;
+  //   return await this.courtsSitesService.parseByRegionKey(region_key);
+  // }
 
   @Patch(':id')
   update(@Param('id') id: string, @Body() updateCourtsSiteDto: UpdateCourtsSiteDto) {
