@@ -22,6 +22,11 @@ export class CourtsSitesService {
 
   async findAll(court_type?: CourtTypes): Promise<CourtsSite[]> {
     return await CourtsSite.findAll({
+      where: {
+        id: { [Op.between]: [0, 300] },
+        // id: { [Op.between]: [7, 9] },
+        link: { [Op.like]: '%.sudrf.ru%' }
+      },
       include: [{
         model: Region,
         where: {
@@ -63,13 +68,19 @@ export class CourtsSitesService {
     }
   }
 
-  async parseCourtCasesBySubjects(): Promise<any[]> {
-    const courtSites = await this.findAll(CourtTypes.GENERAL);
+  async parseCourtCasesBySubjects(search: string): Promise<any[]> {
+    const courtType = CourtTypes.GENERAL;
+    const courtSites = await this.findAll(courtType);
     if (courtSites.length == 0) {
       return ['Нет данных'];
     } else {
-      const result = await this.seleniumService.tryToParseCourtCasesBySubjects(courtSites);
-      return result;
+      const parts = this.splitToNChunks(courtSites, 3);
+      console.log('parts.length = ', parts.length, parts[0].length, parts[1].length, parts[2].length);
+      
+      const threads = parts.map(async (p, key) => await this.seleniumService.tryToParseCourtCasesBySubjects(p, search, key));
+      threads.push(this.seleniumService.tryToParseCourtCasesByUniqueSubjects(courtType, search));
+      
+      return await Promise.allSettled(threads).then(responses => responses);
     }
   }
 
@@ -121,5 +132,14 @@ export class CourtsSitesService {
     }
 
     return `Добавлено: ${created}\nОбновлено: ${updated}\n`;
+  }
+
+  private splitToNChunks(array: any[], n: number) {
+    if (n < 1) return array;
+    let result = [];
+    for (let i = n; i > 0; i--) {
+      result.push(array.splice(0, Math.ceil(array.length / i)));
+    }
+    return result;
   }
 }

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
 import { CourtsSitesService } from './courts_sites.service';
 import { CreateCourtsSiteDto } from './dto/create-courts_site.dto';
 import { UpdateCourtsSiteDto } from './dto/update-courts_site.dto';
@@ -42,9 +42,38 @@ export class CourtsSitesController {
     return await this.courtsSitesService.parseAllMagistrate();
   }
 
-  @Get('parse/court_cases')
-  async parseCourtCasesBySubjects() {
-    return await this.courtsSitesService.parseCourtCasesBySubjects();
+  @Get('parse/court_cases?')
+  async parseCourtCasesBySubjects(@Query('search') search?: string) {
+    console.log('search: ', search);
+    // return[];
+    const searching = [
+      'Ваш юрист',
+      // 'Юрист для людей',
+      // 'Ерышканов',
+    ];
+    let results = {};
+    const now = new Date();
+    const nowYear = now.getFullYear();
+    const nowMonth = now.getMonth() - 1;
+
+    for await (const s of searching) {
+      const courtCases = await this.courtsSitesService.parseCourtCasesBySubjects(s);
+      const result = courtCases.filter(r => r.status == 'fulfilled').map(r => r.value).flat();
+
+      const filtered = result.filter(r => {
+        const date = new Date(r.start_date);
+        return !r.start_date && nowYear == r?.code?.match(/\/(\d+)\s?/)[1] || nowYear == date.getFullYear() && date.getMonth() >= nowMonth;
+      });
+      filtered.map(f => f.link = f.link.replaceAll('amp;', ''));
+
+      results[s] = {
+        'all_count': result.length,
+        'relevant_count': filtered.length,
+        'relevant': filtered,
+      };
+    }
+
+    return results;
   }
 
   // @Get('general/:key')

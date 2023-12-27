@@ -1,23 +1,38 @@
 import { Injectable } from '@nestjs/common';
-import { Builder, Browser, ThenableWebDriver } from 'selenium-webdriver';
+import { Builder, Browser, ThenableWebDriver, By, until } from 'selenium-webdriver';
 import { Options } from 'selenium-webdriver/firefox';
 import { CourtTypes, Region } from 'src/regions/entities/region.entity';
 import { CreateRegionDto } from 'src/regions/dto/create-region.dto';
 import { CourtsSite } from 'src/courts_sites/entities/courts_site.entity';
 // import iconv from 'iconv-lite';
-const iconv = require('iconv-lite');
+import { EncodeString, EncodeStringSplit } from 'src/utils/encoding';
+import * as converterFromParsing from 'src/utils/converter_from_parsing';
 
 @Injectable()
 export class SeleniumService {
   constructor() { }
 
 
-  private readonly base_url = 'https://sudrf.ru/index.php?id=300';
+  private readonly baseUrl = 'https://sudrf.ru/index.php?id=300';
+  private readonly uniqueCases = [
+    'mos-gorsud',
+    'mirsud-chr',
+    'mirsud.spb',
+    'mirsud.sev.gov',
+    'mirsud.lipetsk',
+    'kodms.ru',
+    'mirsud.pskov.ru',
+    'mirsud82.rk.gov',
+    'mirsud.e-mordovia',
+    'mirsud.tatarstan',
+    'stavmirsud.ru',
+    'mirsud86',
+  ];
 
 
   async tryToParseRegions(): Promise<[CreateRegionDto[], CreateRegionDto[]]> {
-    const url_general = this.base_url;
-    const url_magistrate = `${this.base_url}&var=true`;
+    const url_general = this.baseUrl;
+    const url_magistrate = `${this.baseUrl}&var=true`;
     const driver = this.initDriver();
 
     /* getting general regions list */
@@ -32,8 +47,8 @@ export class SeleniumService {
 
     await driver.quit();
 
-    const result_general = this.convertRegions(data_general, true);
-    const result_magistrate = this.convertRegions(data_magistrate);
+    const result_general = converterFromParsing.regions(data_general, true);
+    const result_magistrate = converterFromParsing.regions(data_magistrate);
 
     return [result_general, result_magistrate];
     // return Array.prototype.concat(result_general, result_magistrate);
@@ -47,8 +62,8 @@ export class SeleniumService {
     await driver.quit();
 
     const result = regions[0].court_type == CourtTypes.GENERAL
-      ? this.convertGeneralCourtSubjects(data)
-      : this.convertMagistrateCourtSubjects(data);
+      ? converterFromParsing.generalCourtSubjects(data)
+      : converterFromParsing.magistrateCourtSubjects(data);
 
     for await (const res of result) {
       const index = regions.findIndex(r => r.name == res.region);
@@ -59,23 +74,48 @@ export class SeleniumService {
     return result;
   }
 
-  async tryToParseCourtCasesBySubjects(courtsSites: CourtsSite[]): Promise<any[]> {
-    const encodedPart = iconv.encode('Юрист для людей', 'win1251');
-    const encoded = this.urlEncodeBytes(encodedPart);
+  async tryToParseCourtCasesBySubjects(courtsSites: CourtsSite[], search: string, key: number): Promise<any[]> {
+    const searchText = search;
+    const encoded = EncodeString(searchText);
     const driver = this.initDriver();
     let allCourtCases = [];
 
     for await (const cs of courtsSites) {
-      const link = cs.link.replace('.', '--').replace('http', 'https');
-      const search = `${link}/modules.php?name=sud_delo&srv_num=1&name_op=r&delo_id=1540005&case_type=0&new=0&G1_PARTS__NAMESS=${encoded}&delo_table=g1_case&Submit=%CD%E0%E9%F2%E8`;
-      console.log(search);
+      if (this.uniqueCases.filter(uc => cs.link.includes(uc)).length > 0) {
+        console.log(key, ') uniqueCases');
+        continue;
+      } else if (cs.link.includes('krasnodar-prikubansky')) {
+        console.log(key, ') Прикубанский районный суд г. Краснодара --- требует капчу в фильтрах');
+        continue;
+      } else if (cs.link.includes('kirsanovsky.tmb')) {
+        console.log(key, ') Кирсановский районный суд Тамбовской области --- требует капчу в фильтрах');
+        continue;
+      }
 
-      const courtCases = this.parseCourtCasesBySubject(driver, search);
-      allCourtCases.concat(courtCases);
+      const link = cs.link.replace('.', '--').replace('http:', 'https:');
+      const search = `${link}/modules.php?name=sud_delo&srv_num=1&name_op=r&delo_id=1540005&case_type=0&new=0&G1_PARTS__NAMESS=${encoded}&delo_table=g1_case&Submit=%CD%E0%E9%F2%E8`;
+      const courtCases = await this.parseCourtCasesBySubject(driver, search);
+      courtCases.forEach(c => c.link = link + c.link);
+      // courtCases.forEach(c => c.link = link + c.link.replaceAll('amp;', ''));
+
+      allCourtCases.push(...courtCases);
+      console.log(key, ') ', courtCases.length, allCourtCases.length, search);
     }
 
     await driver.quit();
     return allCourtCases;
+  }
+
+  async tryToParseCourtCasesByUniqueSubjects(courtType: CourtTypes, search: string): Promise<any[]> {
+    const driver = this.initDriver();
+    const searchText = search;
+    // const searchText = 'Ваш юрист';
+
+    if (courtType == CourtTypes.GENERAL) {
+      return await this.parseCourtCasesByUniqueGeneralSubjects(driver, searchText);
+    } else {
+      return await this.parseCourtCasesByUniqueMagistrateSubjects(driver, searchText);
+    }
   }
 
   async clickCourtSubjects(driver: ThenableWebDriver): Promise<boolean> {
@@ -87,67 +127,15 @@ export class SeleniumService {
     return true;
   }
 
+  async copyImageForCaptureSolving(driver: ThenableWebDriver): Promise<boolean> {
+    const images = await driver.findElements(By.css('img'));
+    if (images == null || images.length < 2) return false;
+    const img = await driver.executeScript("arguments[0].execCommand('copy');", images[1]);
+    console.log(img);
 
-  private async parseCourtCasesBySubject(driver: ThenableWebDriver, search: string): Promise<any[]> {
-    await driver.get(search);
-    await driver.sleep(1000);
-    const data = await driver.getPageSource();
-
-    const result = this.convertCourtCases(data);
-    console.log(result);
-
-    return result;
+    return true;
   }
 
-  private convertRegions(data: string, court_type_is_default: boolean = false): CreateRegionDto[] {
-    const chunk = data.match(/table id=.{0,350}<option value="0"><\/option>.*?<\/select>/s);
-    return Array.from(chunk[0].matchAll(
-      /<option value="(?<key>\d+)">(?<name>[^<]+)</gm
-    )).map(c => {
-      const r = new CreateRegionDto();
-      r.key = c[1];
-      r.name = c[2];
-      r.court_type = court_type_is_default ? CourtTypes.GENERAL : CourtTypes.MAGISTRATE;
-      return r;
-    });
-  }
-
-  private convertGeneralCourtSubjects(data: string): any[] {
-    return Array.from(data.matchAll(
-      /court-result">(?<name>[^(<]+)(?:[^>]+>){5}(?<region>[^<]+).*?"(?<link>http[^"]+)"/gs
-    )).map(c => ({
-      name: c[1].trim(),
-      region: c[2],
-      link: c[3],
-    }));
-  }
-
-  private convertMagistrateCourtSubjects(data: string): any[] {
-    const chunk = data.match(/table class="msSearchResultTbl".*ya_all_div/s);
-    return !chunk ? [] : Array.from(chunk[0].matchAll(
-      /;">(?<name>[^<]+)(?:\s+[^>]+>){3}(?<region>[^<]*)(?:\s*[^>]+>).*?href="(?<link>http[^"]+)/gs
-    )).map(c => ({
-      name: c[1].trim(),
-      region: c[2],
-      link: c[3],
-    }));
-  }
-
-  private convertCourtCases(data: string): any[] {
-    return Array.from(data.matchAll(
-      /<td title="Для получения справки по делу, нажмите на номер дела"[^>]*><a href="(?<link>[^"]+)">(?<code>[^<]+)(?:[^>]+>\s*){4}.*?(?<start_date>[0-9.]+)(?:[^>]+>\s*){2}(?<content>(?:[^<]+<?){3})<(?:[^>]+>\s*){2}(?<judge>[А-яЁё. ]+)(?:[^>]+>\s*){2}(?<solving_data>[0-9.]+)(?:[^>]+>\s*){2}(?<solving>[^<]+)(?:[^>]+>\s*){2}(?<finish_data>[0-9.]+).*?href="(?<acts_link>[^"]+)/gm
-    )).map(c => ({
-      link: c[1],
-      code: c[2],
-      start_date: c[3],
-      content: c[4].trim(),
-      judge: c[5],
-      solving_data: c[6],
-      solving: c[7].trim(),
-      finish_data: c[8],
-      acts_link: c[9],
-    }));
-  }
 
   private initDriver(): ThenableWebDriver {
     const opt = new Options().addArguments(
@@ -169,23 +157,70 @@ export class SeleniumService {
     return driver;
   }
 
-  private urlEncodeBytes(buf: Buffer): string {
-    let encoded = '';
-    const len = buf.length;
-
-    for (let i = 0; i < len; i++) {
-      const charBuf = Buffer.from('00', 'hex');
-      charBuf.writeUInt8(buf[i]);
-      const char = charBuf.toString();
-      encoded += this.isUrlSafe(char)
-        ? char
-        : `%${charBuf.toString('hex').toUpperCase()}`;
-    }
-
-    return encoded;
+  private async parseCourtCasesBySubject(driver: ThenableWebDriver, search: string): Promise<any[]> {
+    await driver.get(search);
+    // console.log('data.length = ', search);
+    await Promise.race([
+      driver.wait(until.titleContains('суд'), 1000),
+      driver.wait(until.titleContains('СУД'), 1000),
+      driver.wait(until.titleContains('Суд'), 1000),
+    ]);
+    // try { await driver.wait(until.titleContains('суд'), 1000); } catch (error) {}
+    // try { await driver.wait(until.titleContains('СУД'), 1000); } catch (error) {}
+    // try { await driver.wait(until.titleContains('Суд'), 1000); } catch (error) {}
+    // await driver.wait(until.titleContains('суд') || until.titleContains('СУД') || until.titleContains('Суд'), 1000);
+    const data = await driver.getPageSource();
+    // console.log('data.length = ', data.length);
+    return converterFromParsing.courtCases(data);
   }
 
-  private isUrlSafe(char: string): boolean {
-    return /[a-zA-Z0-9\-_~.]+/.test(char)
+  private async parseCourtCasesByUniqueGeneralSubjects(driver: ThenableWebDriver, searchText: string): Promise<any[]> {
+    let allCourtCases = [];
+    const moscow = await this.parseCourtCasesFromMoscow(driver, searchText);
+    console.log('moscow');
+    console.log(moscow);
+    allCourtCases.push(...moscow);
+
+    await driver.quit();
+    return allCourtCases;
+  }
+
+  private async parseCourtCasesByUniqueMagistrateSubjects(driver: ThenableWebDriver, searchText: string): Promise<any[]> {
+    let allCourtCases = [];
+
+    const chechnya = await this.parseCourtCasesFromChechnya(driver, searchText);
+    console.log('chechnya');
+    console.log(chechnya);
+    allCourtCases.push(...chechnya);
+
+    await driver.quit();
+    return allCourtCases;
+  }
+
+  private async parseCourtCasesFromMoscow(driver: ThenableWebDriver, search: string): Promise<any[]> {
+    const searchText = EncodeStringSplit(search, '+', 'utf8');
+    const base = 'https://mos-gorsud.ru';
+    const url = `${base}/search?participant=${searchText}&formType=fullForm&page=1`;
+
+    await driver.get(url);
+    await driver.wait(until.titleContains('суд'), 800);
+    const data = await driver.getPageSource();
+
+    const courtCases = converterFromParsing.courtCasesMoscowGeneral(data);
+    courtCases.forEach(c => c.link = base + c.link);
+
+    return courtCases;
+  }
+
+  private async parseCourtCasesFromChechnya(driver: ThenableWebDriver, search: string): Promise<any[]> {
+    return [];
+
+    const searchText = EncodeStringSplit(search, '+', 'utf8');
+    const url = `https://mos-gorsud.ru/search?participant=${searchText}&formType=fullForm&page=1`;
+
+    await driver.get(url);
+    await driver.wait(until.titleContains('суд'), 800);
+    const data = await driver.getPageSource();
+    return converterFromParsing.courtCasesChechnyaMagistrate(data);
   }
 }
