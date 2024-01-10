@@ -23,9 +23,10 @@ export class CourtsSitesService {
   async findAll(court_type?: CourtTypes): Promise<CourtsSite[]> {
     return await CourtsSite.findAll({
       where: {
-        id: { [Op.between]: [0, 300] },
-        // id: { [Op.between]: [7, 9] },
-        link: { [Op.like]: '%.sudrf.ru%' }
+        // id: 2102, // magistrate
+        
+        // id: { [Op.between]: [550, 600] },
+        link: { [Op.like]: '%sudrf.ru%' }
       },
       include: [{
         model: Region,
@@ -68,20 +69,20 @@ export class CourtsSitesService {
     }
   }
 
-  async parseCourtCasesBySubjects(search: string): Promise<any[]> {
-    const courtType = CourtTypes.GENERAL;
+  async parseCourtCasesBySubjects(search: string[], courtType: CourtTypes): Promise<any[]> {
     const courtSites = await this.findAll(courtType);
     if (courtSites.length == 0) {
       return ['Нет данных'];
-    } else {
-      const parts = this.splitToNChunks(courtSites, 3);
-      console.log('parts.length = ', parts.length, parts[0].length, parts[1].length, parts[2].length);
-      
-      const threads = parts.map(async (p, key) => await this.seleniumService.tryToParseCourtCasesBySubjects(p, search, key));
-      threads.push(this.seleniumService.tryToParseCourtCasesByUniqueSubjects(courtType, search));
-      
-      return await Promise.allSettled(threads).then(responses => responses);
     }
+
+    const parts = this.splitToNChunks(courtSites, courtType == CourtTypes.MAGISTRATE ? 1 : 3);
+
+    let threads = [];
+    console.log('parts.length = ', parts.length, parts.map(p => p.length));
+    threads = parts.map(async (p, key) => await this.seleniumService.tryToParseCourtCasesBySubjects(p, search, key, courtType));
+    // threads.push(this.seleniumService.tryToParseCourtCasesByUniqueSubjects(courtType, search));
+
+    return await Promise.allSettled(threads).then(responses => responses);
   }
 
   findOne(id: number) {

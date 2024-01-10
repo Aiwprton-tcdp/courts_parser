@@ -10,10 +10,11 @@ import { CourtsSitesModule } from './courts_sites/courts_sites.module';
 import { RegionsModule } from './regions/regions.module';
 import { RegionsService } from './regions/regions.service';
 import { Region } from './regions/entities/region.entity';
+import { HttpModule, HttpService } from '@nestjs/axios';
 
 @Module({
   imports: [
-    ConfigModule.forRoot(),
+    ConfigModule.forRoot({ isGlobal: true }),
     SequelizeModule.forRoot({
       dialect: 'mysql',
       host: process.env.DB_HOST,
@@ -25,12 +26,18 @@ import { Region } from './regions/entities/region.entity';
       autoLoadModels: true,
       synchronize: true,
     }),
+    // HttpModule.register({
+    //   timeout: 5000,
+    //   maxRedirects: 5,
+    // }),
     RegionsModule,
     CourtsSitesModule,
+    // HttpModule,
   ],
   controllers: [AppController],
   providers: [
     AppService,
+    // HttpService,
     SeleniumService,
     CourtsSitesService,
     RegionsService,

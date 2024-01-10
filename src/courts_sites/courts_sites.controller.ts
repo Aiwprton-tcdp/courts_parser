@@ -3,6 +3,7 @@ import { CourtsSitesService } from './courts_sites.service';
 import { CreateCourtsSiteDto } from './dto/create-courts_site.dto';
 import { UpdateCourtsSiteDto } from './dto/update-courts_site.dto';
 import { SeleniumService } from 'src/services/selenium/selenium.service';
+import { CourtTypes } from 'src/regions/entities/region.entity';
 
 @Controller('courts-sites')
 export class CourtsSitesController {
@@ -42,37 +43,86 @@ export class CourtsSitesController {
     return await this.courtsSitesService.parseAllMagistrate();
   }
 
-  @Get('parse/court_cases?')
-  async parseCourtCasesBySubjects(@Query('search') search?: string) {
-    console.log('search: ', search);
-    // return[];
+  // http://courts_parser.node.sms19.ru:1288/courts-sites/parse/court_cases/general
+  @Get('parse/court_cases/general')
+  async parseCourtCasesBySubjects() {
     const searching = [
       'Ваш юрист',
       // 'Юрист для людей',
-      // 'Ерышканов',
+      // 'Юридическое право',
+      // 'Абсолют',
+      // 'Финансово-юридический центр',
+      // 'Глобус',
     ];
     let results = {};
     const now = new Date();
     const nowYear = now.getFullYear();
     const nowMonth = now.getMonth() - 1;
 
-    for await (const s of searching) {
-      const courtCases = await this.courtsSitesService.parseCourtCasesBySubjects(s);
-      const result = courtCases.filter(r => r.status == 'fulfilled').map(r => r.value).flat();
+    // for await (const s of searching) {
+    const courtCases = await this.courtsSitesService.parseCourtCasesBySubjects(searching, CourtTypes.GENERAL);
+    const result = courtCases.filter(r => r.status == 'fulfilled').map(r => r.value).flat();
 
-      const filtered = result.filter(r => {
-        const date = new Date(r.start_date);
-        return !r.start_date && nowYear == r?.code?.match(/\/(\d+)\s?/)[1] || nowYear == date.getFullYear() && date.getMonth() >= nowMonth;
-      });
-      filtered.map(f => f.link = f.link.replaceAll('amp;', ''));
+    const filtered = result.filter(r => {
+      const date = new Date(r.start_date);
+      const date_parts = r.solving_status?.match(/(?<days>\d{2})\.(?<months>\d{2})\.(?<years>\d{4})/);
+      if (date_parts == null) return true;
+      console.log(r, date_parts);
 
-      results[s] = {
-        'all_count': result.length,
-        'relevant_count': filtered.length,
-        'relevant': filtered,
-      };
-    }
+      const alternative_date = new Date(`${date_parts[2]}/${date_parts[1]}/${date_parts[3]}`); // например, дата назначения судебного заседания
 
+      return !r.start_date && (/*nowYear == r?.code?.match(/\/(\d+)\s?/)[1] || */now < alternative_date) || nowYear == date.getFullYear() && date.getMonth() >= nowMonth;
+    });
+    filtered.map(f => f.link = f.link.replaceAll('amp;', ''));
+
+    // results[s] = {
+    //   'all_count': result.length,
+    //   'relevant_count': filtered.length,
+    //   'relevant': filtered,
+    // };
+    // }
+
+    results = {
+      'all_count': result.length,
+      'relevant_count': filtered.length,
+      'relevant': filtered,
+    };
+    return results;
+  }
+
+  @Get('parse/court_cases/magistrate')
+  async parseCourtCasesBySubjectsMagistrate() {
+    const searching = [
+      'Ваш юрист',
+      'Юрист для людей',
+      'Ерышканов',
+      'Сидоров',
+    ];
+    let results = {};
+    const now = new Date();
+    const nowYear = now.getFullYear();
+    const nowMonth = now.getMonth() - 1;
+
+    const courtCases = await this.courtsSitesService.parseCourtCasesBySubjects(searching, CourtTypes.MAGISTRATE);
+    
+    const result = courtCases.filter(r => r.status == 'fulfilled').map(r => r.value).flat();
+    const filtered = result.filter(r => {
+      const date = new Date(r.start_date);
+      const date_parts = r.solving_status?.match(/(?<days>\d{2})\.(?<months>\d{2})\.(?<years>\d{4})/);
+      if (date_parts == null) return true;
+      console.log(r, date_parts);
+
+      const alternative_date = new Date(`${date_parts[2]}/${date_parts[1]}/${date_parts[3]}`); // например, дата назначения судебного заседания
+
+      return !r.start_date && (/*nowYear == r?.code?.match(/\/(\d+)\s?/)[1] || */now < alternative_date) || nowYear == date.getFullYear() && date.getMonth() >= nowMonth;
+    });
+    // filtered.map(f => f.link = f.link.replaceAll('amp;', ''));
+
+    results = {
+      'all_count': result.length,
+      'relevant_count': filtered.length,
+      'relevant': filtered,
+    };
     return results;
   }
 
